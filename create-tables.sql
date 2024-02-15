@@ -9,7 +9,7 @@ CREATE TABLE user (
   password     VARCHAR(255) NOT NULL,
     id  int NOT NULL AUTO_INCREMENT UNIQUE,
   session     VARCHAR(255) NOT NULL,
-  PRIMARY KEY (`email`)
+  PRIMARY KEY (`id`)
 );
 
 -- INSERT INTO user
