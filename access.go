@@ -1,7 +1,9 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -9,96 +11,135 @@ import (
 	"github.com/google/uuid"
 )
 
-func getUser(w http.ResponseWriter, req *http.Request, user User) {
-    var (
-        addId int
-        addSession string
-    )
-
-    addedRow := db.QueryRow("SELECT id, session FROM user WHERE email = ?", user.Email)
-    
-    err := addedRow.Scan(&addId, &addSession)
-    hadErr := HandleErr(w, err, http.StatusBadRequest)
-    if hadErr {
-        return
-    }
-
-    retVals := AuthUser{
-        string(addId),
-        addSession,
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(http.StatusCreated)
-    json.NewEncoder(w).Encode(retVals)
+type RequestAccessUser struct {
+	Email    string
+	Password string
 }
 
-func Login(w http.ResponseWriter, req *http.Request, user User) {
-    var (
-        dbPass string
-    )
+func AccessUser(dbConn *sql.DB, w http.ResponseWriter, req *http.Request) {
+	fmt.Println("/access request")
 
-    userRow := db.QueryRow("SELECT password FROM user WHERE email = ?", user.Email)
+	if req.URL.Path != "/access" {
+		http.NotFound(w, req)
+		return
+	}
 
-    err := userRow.Scan(&dbPass)
-    hadErr := HandleErr(w, err, http.StatusBadRequest)
-    if hadErr {
-        return
-    }
+	var user RequestAccessUser
 
-    if dbPass != user.Password {
-        log.Fatal("password doesn't match")
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
+	err := json.NewDecoder(req.Body).Decode(&user)
+	hadErr := HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
 
-    sessionBytes, err := uuid.NewUUID()
-    hadErr = HandleErr(w, err, http.StatusBadRequest)
-    if hadErr {
-        return
-    }
+	var (
+		dbConnId int
+	)
+	hasEmailErr := dbConn.QueryRow("SELECT id FROM user WHERE email = ?", user.Email).Scan(&dbConnId)
 
-    sessionId := sessionBytes.String() 
+	if hasEmailErr == sql.ErrNoRows {
+		register(dbConn, w, req, user)
+		return
+	}
 
-    assignSessionStmt, err := db.Prepare("UPDATE user SET session = ? WHERE email = ?")
-    defer assignSessionStmt.Close()
-    hadErr = HandleErr(w, err, http.StatusBadRequest)
-    if hadErr {
-        return
-    }
+	if dbConnId > 0 {
+		login(dbConn, w, req, user)
+		return
+	}
 
-    _, err = assignSessionStmt.Exec(sessionId, user.Email)
-    hadErr = HandleErr(w, err, http.StatusBadRequest)
-    if hadErr {
-        return
-    }
-
-    getUser(w, req, user)
+	//Scan always has err != nil
+	HandleErr(w, hasEmailErr, http.StatusBadRequest)
 }
 
-func Register(w http.ResponseWriter, req *http.Request, user User) {
-    sessionBytes, err := uuid.NewUUID()
-    hadErr := HandleErr(w, err, http.StatusBadRequest)
-    if hadErr {
-        return
-    }
+func login(dbConn *sql.DB, w http.ResponseWriter, req *http.Request, user RequestAccessUser) {
+	var (
+		dbConnPass string
+	)
 
-    sessionId := sessionBytes.String() 
+	userRow := dbConn.QueryRow("SELECT password FROM user WHERE email = ?", user.Email)
 
-    // adding session here in case of error so don't have to reverse change
-    createUserStmt, err := db.Prepare("INSERT INTO user (email, password, session) VALUES (?, ?, ?)")
-    defer createUserStmt.Close()
-    hadErr = HandleErr(w, err, http.StatusBadRequest)
-    if hadErr {
-        return
-    }
+	err := userRow.Scan(&dbConnPass)
+	hadErr := HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
 
-    _, err = createUserStmt.Exec(user.Email, user.Password, sessionId)
-    hadErr = HandleErr(w, err, http.StatusBadRequest)
-    if hadErr {
-        return
-    }
+	if dbConnPass != user.Password {
+		log.Fatal("password doesn't match")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
-    getUser(w, req, user)
+	sessionBytes, err := uuid.NewUUID()
+	hadErr = HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	sessionId := sessionBytes.String()
+
+	assignSessionStmt, err := dbConn.Prepare("UPDATE user SET session = ? WHERE email = ?")
+	defer assignSessionStmt.Close()
+	hadErr = HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	_, err = assignSessionStmt.Exec(sessionId, user.Email)
+	hadErr = HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	getUser(dbConn, w, req, user)
 }
 
+func register(dbConn *sql.DB, w http.ResponseWriter, req *http.Request, user RequestAccessUser) {
+	sessionBytes, err := uuid.NewUUID()
+	hadErr := HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	sessionId := sessionBytes.String()
+
+	// adding session here in case of error so don't have to reverse change
+	createUserStmt, err := dbConn.Prepare("INSERT INTO user (email, password, session) VALUES (?, ?, ?)")
+	defer createUserStmt.Close()
+	hadErr = HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	_, err = createUserStmt.Exec(user.Email, user.Password, sessionId)
+	hadErr = HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	getUser(dbConn, w, req, user)
+}
+
+func getUser(dbConn *sql.DB, w http.ResponseWriter, req *http.Request, user RequestAccessUser) {
+	var (
+		addId      int
+		addSession string
+	)
+
+	addedRow := dbConn.QueryRow("SELECT id, session FROM user WHERE email = ?", user.Email)
+
+	err := addedRow.Scan(&addId, &addSession)
+	hadErr := HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	retVals := AuthUser{
+		fmt.Sprint(addId),
+		addSession,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(retVals)
+}

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,179 +12,109 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-var db *sql.DB
-
-type User struct {
-    Email string
-    Password string
-    Session string
-}
-
 type AuthUser struct {
-    Id string `json:"id"` 
-    Session string `json:"session"`
-}
-
-type ChangeEmail struct {
-    AuthUser
-    Email string `json:"email"`
-}
-
-type ChangePass struct {
-    AuthUser
-    Password string `json:"password"`
+	Id      string `json:"id"`
+	Session string `json:"session"`
 }
 
 func main() {
-//    env := flag.String("e", "dev", "environment: dev|prod")
-//    flag.Parse()
-//
-//    if *env == "dev" {
-//        env_vars.DevEnv()
-//    }
-//
-//    if *env == "prod" {
-//        env_vars.ProdEnv()
-//    }
-        
-    DevEnv()
+	var DB *sql.DB
 
-    accessStr := fmt.Sprintf(
-        "%s:%s@tcp(%s:%s)/%s",
-        os.Getenv("DBUSER"),
-        os.Getenv("DBPASS"),
-        os.Getenv("DBADDR"),
-        os.Getenv("DBPORT"),
-        os.Getenv("DBDATABASE"),
-        )
+	//    env := flag.String("e", "dev", "environment: dev|prod")
+	//    flag.Parse()
+	//
+	//    if *env == "dev" {
+	//        env_vars.DevEnv()
+	//    }
+	//
+	//    if *env == "prod" {
+	//        env_vars.ProdEnv()
+	//    }
 
-    fmt.Println("accessStr")
-    fmt.Println(accessStr)
+	DevEnv()
 
-    var err error
-    db, err = sql.Open("mysql", accessStr)
-    if err != nil {
-        log.Fatal(err)
-    }
+	accessStr := fmt.Sprintf(
+		"%s:%s@tcp(%s:%s)/%s",
+		os.Getenv("DBUSER"),
+		os.Getenv("DBPASS"),
+		os.Getenv("DBADDR"),
+		os.Getenv("DBPORT"),
+		os.Getenv("DBDATABASE"),
+	)
 
-    defer db.Close()
+	fmt.Println("accessStr")
+	fmt.Println(accessStr)
 
-    pingErr := db.Ping()
-    if pingErr != nil {
-        log.Fatal(pingErr)
-    }
-    fmt.Println("Connected!")
+	var err error
+	DB, err = sql.Open("mysql", accessStr)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    routeHandler := http.NewServeMux()
+	defer DB.Close()
 
-    routeHandler.HandleFunc("POST /access", func(w http.ResponseWriter, req *http.Request) {
-        fmt.Println("/access request")
+	pingErr := DB.Ping()
+	if pingErr != nil {
+		log.Fatal(pingErr)
+	}
+	fmt.Println("Connected!")
 
-        if req.URL.Path != "/access" {
-			http.NotFound(w, req)
-			return
-		}
+	routeHandler := http.NewServeMux()
 
-        var user User
+	handleAccessUser := func(w http.ResponseWriter, req *http.Request) {
+		AccessUser(DB, w, req)
+	}
+	handleChangeEmail := func(w http.ResponseWriter, req *http.Request) {
+		ChangeEmail(DB, w, req)
+	}
+	handleChangePassword := func(w http.ResponseWriter, req *http.Request) {
+		ChangePassword(DB, w, req)
+	}
+	handleDeleteUser := func(w http.ResponseWriter, req *http.Request) {
+		DeleteUser(DB, w, req)
+	}
 
-        err := json.NewDecoder(req.Body).Decode(&user)
-        hadErr := HandleErr(w, err, http.StatusBadRequest)
-        if hadErr {
-            return
-        }
+	routeHandler.HandleFunc("POST /access", handleAccessUser)
 
-        var (
-            dbId int
-        )
-        hasEmailErr := db.QueryRow("SELECT id FROM user WHERE email = ?", user.Email).Scan(&dbId)
+	routeHandler.HandleFunc("PUT /email", handleChangeEmail)
 
-        if dbId > 0 {
-            Login(w, req, user)
-            return
-        }
+	routeHandler.HandleFunc("PUT /password", handleChangePassword)
 
-        if hasEmailErr == sql.ErrNoRows {
-            Register(w, req, user)
-            return
-        }
+	routeHandler.HandleFunc("DELETE /delete", handleDeleteUser)
 
-        //Scan always has err != nil
-        HandleErr(w, hasEmailErr, http.StatusBadRequest)
-    })
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: routeHandler,
+	}
 
-    routeHandler.HandleFunc("PUT /email", func(w http.ResponseWriter, req *http.Request) {
-        fmt.Println("/change email")
+	log.Fatal(server.ListenAndServe())
+}
 
-        if req.URL.Path != "/email" {
-			http.NotFound(w, req)
-			return
-		}
+func IsSessionValid(dbConn *sql.DB, w http.ResponseWriter, id string, session string) error {
+	var (
+		DBSession string
+	)
 
-        var user ChangeEmail
+	hasEmailErr := dbConn.QueryRow("SELECT session FROM user WHERE id = ?", id).Scan(&DBSession)
 
-        err := json.NewDecoder(req.Body).Decode(&user)
-        hadErr := HandleErr(w, err, http.StatusBadRequest)
-        if hadErr {
-            return
-        }
-    
-        assignEmailStmt, err := db.Prepare(fmt.Sprintf("UPDATE user SET email = '%s' WHERE id = ?", user.Email))
-        defer assignEmailStmt.Close()
-        hadErr = HandleErr(w, err, http.StatusBadRequest)
-        if hadErr {
-            return
-        }
-    
-        ChangeUser(w, req, user.Id, user.Session, assignEmailStmt)
-    })
+	if hasEmailErr == sql.ErrNoRows {
+		return sql.ErrNoRows
+	}
 
-    routeHandler.HandleFunc("PUT /password", func(w http.ResponseWriter, req *http.Request) {
-        fmt.Println("/change pass")
+	if DBSession != session {
+		log.Fatal("session doesn't match")
+		return errors.New("sessions do not match")
+	}
 
-        if req.URL.Path != "/password" {
-			http.NotFound(w, req)
-			return
-		}
-
-        var user ChangePass
-
-        err := json.NewDecoder(req.Body).Decode(&user)
-        hadErr := HandleErr(w, err, http.StatusBadRequest)
-        if hadErr {
-            return
-        }
-    
-        assignPassStmt, err := db.Prepare(fmt.Sprintf("UPDATE user SET password = '%s' WHERE id = ?", user.Password))
-        defer assignPassStmt.Close()
-        hadErr = HandleErr(w, err, http.StatusBadRequest)
-        if hadErr {
-            return
-        }
-    
-        ChangeUser(w, req, user.Id, user.Session, assignPassStmt)
-    })
-
-    routeHandler.HandleFunc("DELETE /", func(w http.ResponseWriter, req *http.Request) {
-        if req.URL.Path != "/" {
-			http.NotFound(w, req)
-			return
-		}
-    })
-
-    server := &http.Server{
-        Addr: ":8080",
-        Handler: routeHandler,
-    }
-
-    log.Fatal(server.ListenAndServe())
+	return nil
 }
 
 func HandleErr(w http.ResponseWriter, err error, status int) bool {
-    if err != nil {
-        log.Println(err.Error())
-        http.Error(w, err.Error(), status)
-        return true
-    }
+	if err != nil {
+		log.Println(err.Error())
+		http.Error(w, err.Error(), status)
+		return true
+	}
 
-    return false
+	return false
 }

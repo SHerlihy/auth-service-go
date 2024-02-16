@@ -1,0 +1,24 @@
+POST http://localhost:8080/access
+Content-Type: application/json
+
+{
+    "email": "change3@mail.com",
+    "password": "test1"
+}
+
+PUT http://localhost:8080/email
+Content-Type: application/json
+
+{
+    "id": "1",
+    "session": "c35fe81f-ccf5-11ee-955b-d05f643363e0",
+    "email": "change4@mail.com"
+}
+
+DELETE http://localhost:8080/delete
+Content-Type: application/json
+
+{
+    "id": "2",
+    "session": "8bf27b0d-ccf6-11ee-a2d9-d05f643363e0"
+}

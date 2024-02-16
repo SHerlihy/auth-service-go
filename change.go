@@ -1,49 +1,98 @@
 package main
 
 import (
-	"encoding/json"
-	"log"
-	"net/http"
-
 	"database/sql"
+	"encoding/json"
+	"fmt"
+	"net/http"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
-func ChangeUser(w http.ResponseWriter, req *http.Request, id string, session string, changeStmt *sql.Stmt) {
-        var (
-            dbSession string
-        )
-
-        hasEmailErr := db.QueryRow("SELECT session FROM user WHERE id = ?", id).Scan(&dbSession)
-
-        if dbSession == "" {
-            hadErr := HandleErr(w, hasEmailErr, http.StatusBadRequest)
-            if hadErr {
-                return
-            }
-            return
-        }
-
-        if dbSession != session {
-            log.Fatal("session doesn't match")
-            http.Error(w, hasEmailErr.Error(), http.StatusBadRequest)
-            return
-        }
-    
-        _, err := changeStmt.Exec(id)
-        hadErr := HandleErr(w, err, http.StatusBadRequest)
-        if hadErr {
-            return
-        }
-
-        retVals := AuthUser{
-            dbSession,
-            id,
-        }
-
-        w.Header().Set("Content-Type", "application/json")
-        w.WriteHeader(http.StatusCreated)
-        json.NewEncoder(w).Encode(retVals)
+type RequestChangeEmail struct {
+	AuthUser
+	Email string `json:"email"`
 }
 
+type RequestChangePassword struct {
+	AuthUser
+	Password string `json:"password"`
+}
+
+func ChangeEmail(dbConn *sql.DB, w http.ResponseWriter, req *http.Request) {
+	fmt.Println("/change email")
+
+	if req.URL.Path != "/email" {
+		http.NotFound(w, req)
+		return
+	}
+
+	var user RequestChangeEmail
+
+	err := json.NewDecoder(req.Body).Decode(&user)
+	hadErr := HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	err = IsSessionValid(dbConn, w, user.Id, user.Session)
+	hadErr = HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	assignEmailStmt, err := dbConn.Prepare(fmt.Sprintf("UPDATE user SET email = '%s' WHERE id = ?", user.Email))
+	defer assignEmailStmt.Close()
+	hadErr = HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	_, err = assignEmailStmt.Exec(user.Id)
+	hadErr = HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func ChangePassword(dbConn *sql.DB, w http.ResponseWriter, req *http.Request) {
+	fmt.Println("/change pass")
+
+	if req.URL.Path != "/password" {
+		http.NotFound(w, req)
+		return
+	}
+
+	var user RequestChangePassword
+
+	err := json.NewDecoder(req.Body).Decode(&user)
+	hadErr := HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	err = IsSessionValid(dbConn, w, user.Id, user.Session)
+	hadErr = HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	assignPassStmt, err := dbConn.Prepare(fmt.Sprintf("UPDATE user SET password = '%s' WHERE id = ?", user.Password))
+	defer assignPassStmt.Close()
+	hadErr = HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	_, err = assignPassStmt.Exec(user.Id)
+	hadErr = HandleErr(w, err, http.StatusBadRequest)
+	if hadErr {
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+}
