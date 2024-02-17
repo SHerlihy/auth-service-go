@@ -10,12 +10,12 @@ import (
 )
 
 type RequestChangeEmail struct {
-	AuthUser
+	RequestUserAuth
 	Email string `json:"email"`
 }
 
 type RequestChangePassword struct {
-	AuthUser
+	RequestUserAuth
 	Password string `json:"password"`
 }
 
@@ -35,7 +35,7 @@ func ChangeEmail(dbConn *sql.DB, w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	err = IsSessionValid(dbConn, w, user.Id, user.Session)
+	err = IsSessionValid(dbConn, w, user.Id, user.CurrentSession)
 	hadErr = HandleErr(w, err, http.StatusBadRequest)
 	if hadErr {
 		return
@@ -74,7 +74,7 @@ func ChangePassword(dbConn *sql.DB, w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	err = IsSessionValid(dbConn, w, user.Id, user.Session)
+	err = IsSessionValid(dbConn, w, user.Id, user.CurrentSession)
 	hadErr = HandleErr(w, err, http.StatusBadRequest)
 	if hadErr {
 		return

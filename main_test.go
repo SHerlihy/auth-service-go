@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http/httptest"
 	"os"
 	"testing"
 )
@@ -54,5 +58,39 @@ func resetDB(t *testing.T){
 }
 
 func TestAddUsers(t *testing.T){
+    t.Log("test begin")
     resetDB(t)
+    accessStr := fmt.Sprintf(
+        "%s:%s@tcp(%s:%s)/%s",
+        os.Getenv("DBUSER"),
+        os.Getenv("DBPASS"),
+        os.Getenv("DBADDR"),
+        os.Getenv("DBPORT"),
+        os.Getenv("DBDATABASE"),
+        )
+
+    var err error
+    testDB, err = sql.Open("mysql", accessStr)
+    if err != nil {
+        t.Fatal(err)
+    }
+    defer testDB.Close()
+
+    addTest1 := RequestAccessUser{
+        Email: "test1@mail.com",
+        Password: "test1",
+    }
+    jsonTest1, _ := json.Marshal(addTest1)
+    w := httptest.NewRecorder()
+    bodyTest1 := bytes.NewReader(jsonTest1)
+    req := httptest.NewRequest("POST", "http://localhost/access", bodyTest1)
+    AccessUser(testDB, w, req)
+
+	resp := w.Result()
+	body, _ := io.ReadAll(resp.Body)
+
+    t.Log("test end")
+    t.Log(resp.Status)
+	t.Log(resp.Header.Get("Content-Type"))
+	t.Log(string(body))
 }

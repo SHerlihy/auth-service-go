@@ -17,7 +17,7 @@ func DeleteUser(dbConn *sql.DB, w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var user AuthUser
+	var user RequestUserAuth
 
 	err := json.NewDecoder(req.Body).Decode(&user)
 	hadErr := HandleErr(w, err, http.StatusBadRequest)
@@ -25,7 +25,7 @@ func DeleteUser(dbConn *sql.DB, w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	err = IsSessionValid(dbConn, w, user.Id, user.Session)
+	err = IsSessionValid(dbConn, w, user.Id, user.CurrentSession)
 	hadErr = HandleErr(w, err, http.StatusBadRequest)
 	if hadErr {
 		return

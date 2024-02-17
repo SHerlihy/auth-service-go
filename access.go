@@ -78,6 +78,8 @@ func login(dbConn *sql.DB, w http.ResponseWriter, req *http.Request, user Reques
 
 	sessionId := sessionBytes.String()
 
+    prevAuth, err := getCurrentAuth(dbConn, w, req, user)
+
 	assignSessionStmt, err := dbConn.Prepare("UPDATE user SET session = ? WHERE email = ?")
 	defer assignSessionStmt.Close()
 	hadErr = HandleErr(w, err, http.StatusBadRequest)
@@ -91,7 +93,17 @@ func login(dbConn *sql.DB, w http.ResponseWriter, req *http.Request, user Reques
 		return
 	}
 
-	getUser(dbConn, w, req, user)
+    retVals := ResponseUserAuth{
+        RequestUserAuth: RequestUserAuth{
+            Id: prevAuth.Id,
+            CurrentSession: sessionId,
+        },
+        PreviousSession: prevAuth.CurrentSession,
+    }
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(retVals)
 }
 
 func register(dbConn *sql.DB, w http.ResponseWriter, req *http.Request, user RequestAccessUser) {
@@ -117,11 +129,24 @@ func register(dbConn *sql.DB, w http.ResponseWriter, req *http.Request, user Req
 		return
 	}
 
-	getUser(dbConn, w, req, user)
+    currentAuth, err := getCurrentAuth(dbConn, w, req, user)
+
+    retVals := ResponseUserAuth{
+        RequestUserAuth: RequestUserAuth{
+            Id: currentAuth.Id,
+            CurrentSession: currentAuth.CurrentSession,
+        },
+        PreviousSession: "",
+    }
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(retVals)
 }
 
-func getUser(dbConn *sql.DB, w http.ResponseWriter, req *http.Request, user RequestAccessUser) {
+func getCurrentAuth(dbConn *sql.DB, w http.ResponseWriter, req *http.Request, user RequestAccessUser) (RequestUserAuth, error) {
 	var (
+        retVals RequestUserAuth
 		addId      int
 		addSession string
 	)
@@ -129,17 +154,14 @@ func getUser(dbConn *sql.DB, w http.ResponseWriter, req *http.Request, user Requ
 	addedRow := dbConn.QueryRow("SELECT id, session FROM user WHERE email = ?", user.Email)
 
 	err := addedRow.Scan(&addId, &addSession)
-	hadErr := HandleErr(w, err, http.StatusBadRequest)
-	if hadErr {
-		return
+	if err != nil {
+		return RequestUserAuth{}, err
 	}
 
-	retVals := AuthUser{
+    retVals = RequestUserAuth{
 		fmt.Sprint(addId),
 		addSession,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(retVals)
+    return retVals, nil
 }

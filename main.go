@@ -12,9 +12,14 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-type AuthUser struct {
+type RequestUserAuth struct {
 	Id      string `json:"id"`
-	Session string `json:"session"`
+	CurrentSession string `json:"currentSession"`
+}
+
+type ResponseUserAuth struct {
+    RequestUserAuth
+	PreviousSession string `json:"previousSession"`
 }
 
 func main() {
