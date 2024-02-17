@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 var testDB *sql.DB
@@ -57,6 +59,49 @@ func resetDB(t *testing.T){
     }
 }
 
+func testAdd(t *testing.T, userDets RequestAccessUser) ResponseUserAuth {
+    jsonTest1, _ := json.Marshal(userDets)
+    w := httptest.NewRecorder()
+    bodyTest1 := bytes.NewReader(jsonTest1)
+    req := httptest.NewRequest("POST", "http://localhost/access", bodyTest1)
+    AccessUser(testDB, w, req)
+
+	resp := w.Result()
+	body, _ := io.ReadAll(resp.Body)
+    bodyStruct := ResponseUserAuth{}
+    json.Unmarshal(body, &bodyStruct)
+
+    return bodyStruct
+
+
+}
+
+func testRegSessions(t *testing.T, userDets RequestAccessUser) ResponseUserAuth {
+    resUserAuth := testAdd(t, userDets)
+
+    err := uuid.Validate(resUserAuth.CurrentSession)
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    if resUserAuth.PreviousSession != "" {
+        t.Fatal("Prev session present")
+    }
+
+    return resUserAuth
+}
+
+func testRegister(t *testing.T, userDets RequestAccessUser, expId int) ResponseUserAuth {
+    resUserAuth := testRegSessions(t, userDets)
+
+    expectedId := fmt.Sprint(expId)
+    if resUserAuth.Id != expectedId {
+        t.Fatal(fmt.Sprintf("Id expected: %s\nId recieved: %s", expectedId, resUserAuth.Id))
+    }
+
+    return resUserAuth
+}
+
 func TestAddUsers(t *testing.T){
     t.Log("test begin")
     resetDB(t)
@@ -76,21 +121,17 @@ func TestAddUsers(t *testing.T){
     }
     defer testDB.Close()
 
-    addTest1 := RequestAccessUser{
-        Email: "test1@mail.com",
-        Password: "test1",
+    for i := range 5 {
+        addTest := RequestAccessUser{
+            Email: fmt.Sprintf("test%x@mail.com", i),
+            Password: fmt.Sprintf("test%x", i),
+        }
+
+        testRegister(t, addTest, i+1)
     }
-    jsonTest1, _ := json.Marshal(addTest1)
-    w := httptest.NewRecorder()
-    bodyTest1 := bytes.NewReader(jsonTest1)
-    req := httptest.NewRequest("POST", "http://localhost/access", bodyTest1)
-    AccessUser(testDB, w, req)
 
-	resp := w.Result()
-	body, _ := io.ReadAll(resp.Body)
-
-    t.Log("test end")
-    t.Log(resp.Status)
-	t.Log(resp.Header.Get("Content-Type"))
-	t.Log(string(body))
+//    t.Log("test end")
+//    t.Log(resp.Status)
+//	t.Log(resp.Header.Get("Content-Type"))
+//	t.Log(string(body))
 }
