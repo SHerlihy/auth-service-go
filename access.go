@@ -65,8 +65,8 @@ func login(dbConn *sql.DB, w http.ResponseWriter, req *http.Request, user Reques
 	}
 
 	if dbConnPass != user.Password {
-		log.Fatal("password doesn't match")
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Println("password doesn't match")
+	    w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
